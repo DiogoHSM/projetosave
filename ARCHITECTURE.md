@@ -1,194 +1,220 @@
-# Discipulado SaaS - Arquitetura do Sistema
+# Discipulado SaaS – Arquitetura do Sistema
 
 ## 1. Visão geral
 ### 1.1 Objetivo
-Aplicativo SaaS de discipulado cristão com foco em acompanhamento estruturado, progressivo e relacional.
-O sistema permite que um discipulador libere conteúdos gradualmente, acompanhe respostas e forme novos discipuladores ao final do processo.
+Aplicativo SaaS de discipulado cristão cujo objetivo é permitir que um discipulador acompanhe um discípulo em estudos estruturados, progressivos e relacionais, promovendo crescimento espiritual e multiplicação do discipulado.
+
+O sistema controla a liberação manual de conteúdos, acompanha respostas, registra histórico e incentiva que discípulos formados iniciem novos discipulados.
 
 ### 1.2 Princípios do produto
-- Conteúdo único e padronizado (doutrinário/pedagógico).
+- Conteúdo doutrinário único e padronizado.
 - Liberação sempre manual, conduzida pelo discipulador.
-- Ênfase em relacionamento, não competição.
+- Ênfase em relacionamento e formação, não competição.
 - Multiplicação orgânica do discipulado.
-- Simplicidade operacional para igrejas e indivíduos.
+- Simplicidade operacional para indivíduos e igrejas.
 
 ---
 
-## 2. Tipos de acesso e modelo multi-tenant
-O sistema é multi-tenant baseado em **organizações**, que podem ser do tipo:
+## 2. Modelo multi-tenant e tipos de acesso
+O sistema é multi-tenant baseado em **organizações (orgs)**, que podem ser do tipo:
 
 - `individual`
 - `igreja`
 
-Toda lógica de acesso, licença e relatórios parte da organização.
-
-### 2.1 Individual
-- Pessoa física compra:
-  - 1 licença de discipulador (obrigatória)
-  - N licenças de discípulo (iniciais ou adicionais)
-- Ao comprar 1 licença de discipulador:
-  - ganha automaticamente 1 licença de discípulo
-- O discipulador convida discípulos por link/email.
-- Discípulos não pagam.
-- Licenças de discípulo são **fixas e atreladas ao discipulador**.
-- Ao concluir um discipulado:
-  - o vínculo é encerrado
-  - respostas ficam disponíveis apenas para leitura
-  - o discipulador recebe **uma nova licença de discípulo**
-  - o discípulo “formado” é promovido automaticamente a **perfil de discipulador**
-  - esse novo discipulador recebe um **desconto configurável** para adquirir sua primeira licença de discípulo
-
-### 2.2 Igreja
-- Igreja compra pacotes de licenças.
-- Funciona como o modelo individual, com perfis adicionais:
-  - Administrador
-  - Líder de discipulado
-  - Líder de célula
-- Licenças são gerenciadas pela igreja.
-- Usuários podem pertencer a múltiplas organizações simultaneamente.
+Toda autenticação, autorização, licenciamento e relatórios são sempre contextualizados por organização.
 
 ---
 
-## 3. Perfis e papéis
-Um usuário pode acumular múltiplos papéis.
+## 3. Tipos de organização
+### 3.1 Organização Individual
+- Criada quando uma pessoa física compra uma licença de discipulador.
+- Ao adquirir uma licença de discipulador:
+  - o usuário ganha automaticamente 1 licença de discípulo
+- O discipulador pode adquirir licenças adicionais de discípulo.
+- Discípulos entram por convite e não pagam.
+- Licenças de discípulo:
+  - são fixas
+  - ficam atreladas ao discipulador
+  - são consumidas enquanto um discipulado está ativo
+- Ao término de um discipulado:
+  - o vínculo é encerrado
+  - o discipulador recebe automaticamente uma nova licença de discípulo
 
-### 3.1 Papéis possíveis
+### 3.2 Organização Igreja
+- Criada e mantida por uma igreja.
+- A igreja compra pacotes de licenças.
+- As regras de discipulado são as mesmas do modelo individual.
+- Possui perfis adicionais para gestão e relatórios.
+
+---
+
+## 4. Usuários e papéis
+### 4.1 Papéis possíveis
 - discipulador
 - discipulo
 - leader_celula
 - leader_discipulado
 - admin
 
-### 3.2 Regras importantes
-- Um usuário pode ser discipulador e discípulo ao mesmo tempo.
-- Um usuário pode estar em múltiplas igrejas.
-- Papéis são sempre atribuídos no contexto de uma organização.
+### 4.2 Regras gerais
+- Um usuário pode ter múltiplos papéis.
+- Um usuário pode ser discipulador e discípulo simultaneamente.
+- Um usuário pode pertencer a múltiplas organizações.
+- Papéis sempre são atribuídos no contexto de uma organização.
 
 ---
 
-## 4. Conteúdo e progressão
-### 4.1 Conteúdo
-- Conteúdo é único e global:
+## 5. Conteúdo e progressão
+### 5.1 Conteúdo
+- O conteúdo é único, global e controlado pela plataforma.
+- Estrutura:
   - módulos
   - lições
   - questões
-- Igrejas podem aplicar:
+- Igrejas podem aplicar customizações visuais:
   - logotipo
   - cores
   - informações de contato
-- Não há customização de conteúdo textual no MVP.
+- O conteúdo textual não é customizável no MVP.
 
-### 4.2 Tipos de questões
+### 5.2 Tipos de questões
 - Múltipla escolha
 - Texto aberto
 - Associação (coluna esquerda x coluna direita)
 
-### 4.3 Fluxo de estudo
-1) discipulador libera lição  
-2) encontro (presencial ou externo ao app)  
-3) discipulador libera questões  
+### 5.3 Visões de conteúdo (aluno x professor)
+O conteúdo possui duas camadas:
+
+**Camada do aluno**
+- Texto base da lição
+- Questões sem respostas
+- Materiais comuns
+
+**Camada do professor**
+- Gabarito das questões
+- Orientações pedagógicas
+- Dicas e macetes de condução
+- Roteiro sugerido do encontro
+
+A camada do professor é acessível apenas a discipuladores e perfis autorizados.
+
+### 5.4 Fluxo de estudo
+1) discipulador libera a lição  
+2) encontro ocorre (fora do app ou presencial)  
+3) discipulador libera as questões  
 4) discípulo responde (com opção de rascunho)  
 5) discípulo envia respostas  
 6) discipulador revisa  
-7) discipulador libera próxima lição  
+7) discipulador libera a próxima lição  
 
-Todo avanço é **manual**.
+Todo avanço é manual.
 
 ---
 
-## 5. Respostas e revisão
-### 5.1 Rascunho
+## 6. Respostas e revisão
+### 6.1 Rascunhos
 - Discípulo pode salvar respostas como rascunho.
-- Apenas respostas enviadas entram em revisão.
+- Rascunhos não entram em revisão.
 
-### 5.2 Revisão
+### 6.2 Revisão
 - Discipulador pode:
   - aprovar
   - solicitar ajustes
-- Revisões ficam registradas para histórico.
+- Toda revisão fica registrada para histórico.
 
 ---
 
-## 6. Encerramento do discipulado
-- Discipulado possui status:
-  - active
-  - completed
-  - archived
-- Ao concluir:
-  - vínculo é encerrado
-  - conteúdo fica apenas para leitura
-  - interação é bloqueada
-  - discípulo é promovido a discipulador
-  - benefício/desconto é aplicado conforme regra administrativa
+## 7. Encerramento do discipulado e multiplicação
+### 7.1 Status do discipulado
+- active
+- completed
+- archived
+
+### 7.2 Encerramento
+Ao concluir um discipulado:
+- o vínculo discipulador–discípulo é encerrado
+- conteúdo e respostas ficam apenas para leitura
+- novas interações são bloqueadas
+- o discipulador recebe uma nova licença de discípulo
+
+### 7.3 Criação de nova organização (multiplicação)
+- Ao concluir o discipulado, o sistema cria automaticamente uma nova organização do tipo `individual` para o discípulo formado.
+- Essa nova org permite que ele inicie seus próprios discipulados.
+- O histórico do usuário na organização anterior permanece preservado.
+
+### 7.4 Benefícios para o novo discipulador
+- Na criação da nova org individual:
+  - é aplicado automaticamente um desconto configurável
+  - o desconto é válido para a primeira compra de licenças de discípulo
+- Regras de desconto são administráveis via painel.
 
 ---
 
-## 7. Gamificação
-### 7.1 Escopo
+## 8. Gamificação
+### 8.1 Escopo
 - Global por usuário
-- Filtrável por igreja
+- Filtrável por organização
 - Sem ranking público
 
-### 7.2 Medalhas
-Exemplos de critérios:
+### 8.2 Medalhas
+Critérios possíveis:
 - Lições concluídas
 - Módulos concluídos
 - Discipulados concluídos
 - Quantidade de discípulos acompanhados
 
-### 7.3 Níveis (exemplo conceitual)
+### 8.3 Níveis (exemplo conceitual)
 - Caminhante
 - Semeador
 - Edificador
 - Cooperador
 - Enviador
 
-Níveis são progressivos e não competitivos.
-
 ---
 
-## 8. Relatórios
-### 8.1 Discipulador
-- Progresso de seus discípulos
+## 9. Relatórios
+### 9.1 Discipulador
+- Progresso dos seus discípulos
 - Histórico de discipulados concluídos
 
-### 8.2 Líder de célula
-- Progresso dos membros do seu grupo
+### 9.2 Líder de célula
+- Progresso do seu grupo
 
-### 8.3 Líder de discipulado
+### 9.3 Líder de discipulado
 - Visão geral da organização
 
-### 8.4 Administrador
+### 9.4 Administrador
 - Usuários
 - Licenças
 - Descontos
 - Grupos
-- Status das assinaturas
+- Assinaturas
 
 ---
 
-## 9. Pagamentos e licenças
-### 9.1 Licença de discipulador
+## 10. Pagamentos e licenças
+### 10.1 Licença de discipulador
 - Assinatura mensal ou anual
-- Necessária para manter acesso ativo
+- Obrigatória para manter acesso ativo
 - Sem licença ativa:
   - acesso bloqueado
   - dados preservados em modo leitura
 
-### 9.2 Licenças de discípulo
+### 10.2 Licenças de discípulo
 - Não expiram
 - Atreladas ao discipulador
-- Consumidas durante um discipulado ativo
+- Consumidas durante discipulados ativos
 - Reemitidas automaticamente ao término
 
-### 9.3 Descontos
-- Descontos configuráveis no painel admin
-- Aplicados automaticamente a discípulos promovidos a discipuladores
+### 10.3 Integração de pagamentos
+- Pagamento confirmado via webhook
+- Assinatura ativada automaticamente
+- Licenças provisionadas sem ação manual
 
 ---
 
-## 10. Arquitetura técnica
-### 10.1 Stack
+## 11. Arquitetura técnica
+### 11.1 Stack
 - Frontend: Next.js
 - Backend: Supabase
   - Auth
@@ -196,15 +222,15 @@ Níveis são progressivos e não competitivos.
   - Storage (se necessário)
   - Edge Functions
 - Pagamentos:
-  - Stripe ou provedor nacional (a definir)
+  - Stripe ou provedor nacional
 - Hosting:
   - Vercel
   - Supabase gerenciado
 
 ---
 
-## 11. Modelo de dados (alto nível)
-### Principais entidades
+## 12. Modelo de dados (alto nível)
+Principais entidades:
 - users
 - organizations
 - organization_members
@@ -212,7 +238,9 @@ Níveis são progressivos e não competitivos.
 - studies
 - modules
 - lessons
+- lesson_teacher_notes
 - questions
+- question_answer_keys
 - discipleships
 - lesson_releases
 - question_releases
@@ -228,47 +256,46 @@ Níveis são progressivos e não competitivos.
 
 ---
 
-## 12. Segurança e RLS
-- Todas as tabelas multi-tenant possuem org_id
+## 13. Segurança e RLS
+- Todas as tabelas multi-tenant possuem org_id.
 - RLS baseado em:
   - pertencimento à organização
   - papel do usuário
-- Leaders têm acesso apenas aos seus escopos
+- Conteúdo do professor é acessível apenas a discipuladores e líderes autorizados.
 
 ---
 
-## 13. Auditoria
+## 14. Auditoria
 Eventos auditáveis:
 - convites
-- liberações
-- envios
+- liberações de lições e questões
+- envios de respostas
 - revisões
-- conclusões
-- promoções
-- pagamentos
+- encerramento de discipulados
+- criação automática de organizações
 - aplicação de descontos
+- pagamentos e assinaturas
 
 ---
 
-## 14. Roadmap técnico
+## 15. Roadmap técnico
 ### MVP
-- Autenticação
-- Organizações
+- Autenticação e organizações
 - Conteúdo fixo
-- Fluxo de discipulado
-- Pagamentos
+- Fluxo completo de discipulado
+- Pagamentos e licenças
 - Gamificação básica
 
 ### V1
 - Notificações
-- Melhor UX
 - Exportação de relatórios
-- Área de encontros
+- Melhorias de UX
+- Área de encontros no app
 
 ---
 
-## 15. Decisões futuras
-- Provedor de pagamento
-- Mobile app
+## 16. Decisões futuras
+- Provedor de pagamento final
+- App mobile
 - Conteúdo multimídia
-- Encontros dentro do app
+- Relatórios avançados
