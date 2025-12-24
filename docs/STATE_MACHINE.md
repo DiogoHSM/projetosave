@@ -1,349 +1,212 @@
 # STATE_MACHINE.md – Projeto SAVE
 
 ## 1. Objetivo
-Definir as máquinas de estados oficiais do Projeto SAVE para:
-- disciplinar transições (quem pode mudar o quê)
-- evitar inconsistências entre frontend e backend
-- orientar RPCs, RLS e validações
-- reduzir bugs em fluxos de liberação/revisão
+Definir as máquinas de estado oficiais do Projeto SAVE.
 
-Regras:
-- Se uma transição não estiver definida aqui, ela é proibida.
-- Backend sempre valida transições (RPC/DB), frontend apenas reflete.
-- Transições importantes devem gerar `audit_events`.
+Este documento é a fonte de verdade para:
+- transições válidas de estado
+- quem pode executar cada transição
+- efeitos colaterais (auditoria, desbloqueios, métricas)
+
+Se uma transição não estiver descrita aqui, ela é inválida.
 
 ---
 
-## 2. Entidades com máquina de estados
+## 2. Princípios gerais
 
-- Discipulado: `discipleships.status`
-- Respostas: `answers.status`
-- Convites: `invites.status`
-- Conteúdo: `studies/modules/lessons.status` (controle editorial)
-- Webhooks: `webhook_logs.status`
-- Notificações: `notifications_outbox.status`
-
----
-
-## 3. Discipulado (`discipleships.status`)
-
-### 3.1 Estados
-- `active` – discipulado em andamento (interação permitida)
-- `completed` – encerrado (somente leitura, sem novas liberações/respostas)
-- `archived` – oculto/encerrado administrativamente (somente leitura)
-
-### 3.2 Transições permitidas
-
-#### A) Criar discipulado
-- `null -> active`
-Quem pode:
-- mentor (discipulador) com assinatura ativa
-- admin da igreja (opcional, quando existir permissão)
-
-Pré-condições:
-- `has_active_mentor_subscription(org_id)` para o mentor (quando aplicável)
-- mentor e discípulo são membros ativos da org
-- seats/licenças disponíveis conforme política de licenças
-Efeitos:
-- criar registro em `discipleships`
-- `audit_events`: `discipleship_created`
+1. Estados são explícitos e finitos.
+2. Toda transição deve:
+   - ter um ator autorizado
+   - gerar evento de auditoria
+3. Estados finais são somente leitura.
+4. Não há “atalhos” de estado.
+5. Estados refletem o **fluxo pedagógico**, não apenas técnico.
 
 ---
 
-#### B) Encerrar discipulado
-- `active -> completed`
-Quem pode:
-- mentor do vínculo
-- admin_org da org
+## 3. Máquina de estado — Discipulado (`discipleships.status`)
 
-Pré-condições:
-- discipulado existe e pertence à org
-- status atual = active
-Efeitos:
-- set `completed_at = now()`
-- bloquear novas liberações e novas respostas
-- reemitir seat/licença de discípulo para o mentor (via RPC)
-- (opcional) gerar desconto para o discípulo iniciar uma org individual
-- `audit_events`: `discipleship_completed`
+### Estados possíveis
+- `active`
+- `completed`
+- `cancelled`
 
----
+### Estado inicial
+- `active`
 
-#### C) Arquivar discipulado
-- `completed -> archived`
-- `active -> archived` (somente para casos administrativos)
-Quem pode:
-- admin_org
-- admin_platform
+### Transições
 
-Pré-condições:
-- discipulado pertence à org
-Efeitos:
-- set `archived_at = now()`
-- `audit_events`: `discipleship_archived`
+| De        | Para        | Quem pode | Observações |
+|----------|-------------|-----------|-------------|
+| active   | completed   | mentor, admin_org | Encerramento normal |
+| active   | cancelled   | admin_org | Excepcional |
+
+### Regras
+- Após `completed` ou `cancelled`, o discipulado:
+  - torna-se somente leitura
+  - não aceita novas liberações nem respostas
+- Ao completar:
+  - registrar `completed_at`
+  - liberar nova licença de disciple para o mentor (quando aplicável)
 
 ---
 
-### 3.3 Transições proibidas (exemplos)
-- `completed -> active` (não reabrir no MVP)
-- `archived -> active`
-- deletar discipulado (usar archive)
+## 4. Máquina de estado — Liberação de lições
+
+### Entidades
+- `lesson_releases`
+- `question_releases`
+
+### Estados implícitos
+- `not_released`
+- `released`
+
+### Regras
+- Apenas mentor pode liberar
+- Liberação é:
+  - idempotente
+  - irreversível
+- Perguntas só podem ser liberadas após a lição correspondente
 
 ---
 
-## 4. Liberação de conteúdo (controle de acesso)
+## 5. Máquina de estado — Respostas (`answers.status`)
 
-### 4.1 Lição liberada (`lesson_releases`)
-Não é status, mas funciona como “marco”:
-- se não existe release: lição não pode ser acessada pelo discípulo
-- se existe: lição pode ser lida (conforme RLS)
+### Estados possíveis
+- `draft`
+- `submitted`
+- `in_review`
+- `needs_changes`
+- `approved`
 
-Regras:
-- liberar lição é idempotente (unique)
-- só mentor do discipulado pode liberar
-- só liberar se discipulado `active`
+### Estado inicial
+- `draft`
 
-Eventos:
-- `lesson_released`
+### Transições
 
-### 4.2 Perguntas liberadas (`question_releases`)
-Mesma lógica:
-- sem release: perguntas não aparecem
-- com release: perguntas e respostas habilitadas
+| De            | Para           | Quem pode |
+|---------------|----------------|-----------|
+| draft         | submitted      | disciple  |
+| submitted     | in_review      | mentor    |
+| in_review     | approved       | mentor    |
+| in_review     | needs_changes  | mentor    |
+| needs_changes | draft          | disciple  |
 
-Regras:
-- só mentor pode liberar
-- só liberar se lição já foi liberada
-- só liberar se discipulado `active`
-
-Evento:
-- `questions_released`
-
----
-
-## 5. Respostas (`answers.status`)
-
-### 5.1 Estados
-- `draft` – rascunho (editável pelo discípulo)
-- `submitted` – enviado pelo discípulo (não editável por padrão)
-- `in_review` – em revisão (mentor assumiu análise)
-- `needs_changes` – mentor pediu ajustes (editável pelo discípulo)
-- `approved` – aprovado (somente leitura)
-
-Observação:
-- `draft` pode existir antes de liberar perguntas? Não. Só após `question_releases`.
-
-### 5.2 Transições permitidas
-
-#### A) Criar/editar rascunho
-- `null -> draft`
-- `draft -> draft` (editar)
-Quem pode:
-- discípulo do discipulado
-
-Pré-condições:
-- discipulado `active`
-- perguntas liberadas para aquela lição (existe question_release)
-- question_id pertence à lesson_id
-Regras:
-- salvar frequentemente
-Efeitos:
-- atualizar `answer_payload`
-- `submitted_at` permanece null
-
-Evento (opcional):
-- `answer_drafted` (pode ser ruidoso; opcional)
+### Regras
+- O disciple pode editar respostas apenas em:
+  - `draft`
+  - `needs_changes`
+- `approved` é estado final e somente leitura
+- Toda mudança gera auditoria
 
 ---
 
-#### B) Enviar resposta
-- `draft -> submitted`
-Quem pode:
-- discípulo do discipulado
+## 6. Máquina de estado — Revisões (`reviews.decision`)
 
-Pré-condições:
-- discipulado `active`
-- perguntas liberadas
-- validação mínima do payload conforme tipo da pergunta
-Efeitos:
-- set `submitted_at = now()`
-- `audit_events`: `answer_submitted`
+### Decisões possíveis
+- `approved`
+- `needs_changes`
+- `comment_only`
 
----
+### Estado inicial
+- não aplicável (cada review é um evento)
 
-#### C) Iniciar revisão
-- `submitted -> in_review`
-Quem pode:
-- mentor do discipulado
-- admin_org (se necessário para suporte)
+### Significado das decisões
 
-Pré-condições:
-- discipulado `active`
-Efeitos:
-- `audit_events`: `answer_review_started`
+#### `approved`
+- Resposta aceita
+- Pode gerar:
+  - avanço no discipulado
+  - contagem para métricas/conquistas
 
----
+#### `needs_changes`
+- Resposta devolvida ao disciple
+- Força transição da resposta para `needs_changes`
 
-#### D) Pedir ajustes
-- `submitted -> needs_changes`
-- `in_review -> needs_changes`
-Quem pode:
-- mentor do discipulado
-- admin_org
+#### `comment_only`
+- Comentário pedagógico
+- **Não altera o estado da resposta**
+- Usado quando:
+  - mentor quer orientar
+  - elogiar
+  - sugerir reflexão adicional
+- Não bloqueia progresso
 
-Pré-condições:
-- discipulado `active`
-Efeitos:
-- inserir `reviews` com decision `needs_changes`
-- `audit_events`: `answer_needs_changes`
+### Regras
+- Apenas mentor do discipulado pode criar reviews
+- Cada review:
+  - está ligada a uma resposta
+  - gera `audit_event`
+- Múltiplos `comment_only` podem existir para a mesma resposta
 
 ---
 
-#### E) Ajustar e reenviar
-- `needs_changes -> draft` (ao editar) OU manter `needs_changes` enquanto edita
-- `needs_changes -> submitted` (reenviar)
-Quem pode:
-- discípulo do discipulado
+## 7. Máquina de estado — Convites (`invites.status`)
 
-Pré-condições:
-- discipulado `active`
-Efeitos:
-- atualizar `answer_payload`
-- update `submitted_at` quando reenviar (ou manter e criar `resubmitted_at` no futuro; MVP pode atualizar submitted_at)
-- `audit_events`: `answer_resubmitted`
-
----
-
-#### F) Aprovar
-- `submitted -> approved`
-- `in_review -> approved`
-- `needs_changes -> approved` (permitido se mentor decidir aprovar mesmo assim)
-Quem pode:
-- mentor do discipulado
-- admin_org
-
-Pré-condições:
-- discipulado `active`
-Efeitos:
-- inserir `reviews` com decision `approved`
-- `audit_events`: `answer_approved`
-
----
-
-### 5.3 Regras de bloqueio após término do discipulado
-Se `discipleships.status != active` então:
-- não permitir:
-  - criar releases
-  - criar/editar/reenviar answers
-  - criar reviews
-- permitir somente leitura para participantes e admin conforme RLS
-
----
-
-## 6. Convites (`invites.status`)
-
-### 6.1 Estados
+### Estados possíveis
 - `pending`
 - `accepted`
-- `revoked`
 - `expired`
+- `revoked`
 
-### 6.2 Transições
-- `null -> pending` (create_invite)
-- `pending -> accepted` (accept_invite)
-- `pending -> revoked` (revoke_invite)
-- `pending -> expired` (job/trigger por tempo)
-
-Regras:
-- após `accepted/revoked/expired`, token não pode ser reutilizado
-- aceitar convite é transacional e idempotente contra replay
-
----
-
-## 7. Conteúdo editorial (currículo)
-
-Aplica a:
-- `studies.status`
-- `modules.status`
-- `lessons.status`
-
-### 7.1 Estados
-- `draft`
-- `published`
-- `archived`
-
-### 7.2 Transições
-- `draft -> published`
-- `published -> archived`
-- `archived -> published` (opcional; recomendado bloquear no MVP)
-
-Quem pode:
-- admin_platform (somente)
-
-Regras:
-- conteúdos `archived` não devem ser usados para novos discipulados
-- conteúdos `draft` não devem aparecer para usuários comuns
-
----
-
-## 8. Webhook logs (`webhook_logs.status`)
-
-### Estados
-- `received`
-- `processed`
-- `failed`
-
-Transições:
-- `received -> processed`
-- `received -> failed`
-- `failed -> processed` (retry manual/automático)
-
-Regras:
-- idempotência por (provider, event_id)
-
----
-
-## 9. Notificações (`notifications_outbox.status`)
-
-### Estados
+### Estado inicial
 - `pending`
-- `sent`
-- `failed`
 
-Transições:
-- `pending -> sent`
-- `pending -> failed`
-- `failed -> sent` (retry)
+### Transições
 
-Regras:
-- `attempts` incrementa em cada tentativa
-- backoff simples para retry
+| De       | Para      | Quem pode |
+|----------|-----------|-----------|
+| pending  | accepted  | usuário convidado |
+| pending  | revoked   | criador, admin_org |
+| pending  | expired   | sistema (tempo) |
 
----
-
-## 10. Eventos e auditoria (mínimo recomendado)
-
-Registrar `audit_events` para:
-- `discipleship_created`
-- `discipleship_completed`
-- `discipleship_archived`
-- `lesson_released`
-- `questions_released`
-- `answer_submitted`
-- `answer_review_started`
-- `answer_needs_changes`
-- `answer_resubmitted`
-- `answer_approved`
-- `invite_created`
-- `invite_accepted`
-- `invite_revoked`
-- `license_allocated`
-- `license_revoked`
-- `teacher_lesson_viewed`
-- `answer_key_viewed`
+### Regras
+- Convites são:
+  - uso único
+  - imutáveis após aceitos
+- Token não pode ser reutilizado
 
 ---
 
-## 11. Regras finais
-- O frontend não pode “inventar” status.
-- O backend não pode permitir transições fora deste documento.
-- Quando houver dúvida, negar transição e registrar evento de segurança.
+## 8. Máquina de estado — Licenças (`org_license_allocations.status`)
+
+### Estados possíveis
+- `active`
+- `revoked`
+
+### Estado inicial
+- `active`
+
+### Transições
+
+| De      | Para     | Quem pode |
+|--------|----------|-----------|
+| active | revoked  | admin_org, group_leader (escopo) |
+
+### Regras
+- Licenças revogadas:
+  - não são reutilizadas
+  - não são deletadas
+- Não é permitido revogar licença:
+  - em uso por discipulado ativo (mentor)
+
+---
+
+## 9. Auditoria obrigatória
+
+Toda transição deve gerar evento em `audit_events`, incluindo:
+- actor_user_id
+- org_id
+- entity_type
+- entity_id
+- from_state (quando aplicável)
+- to_state (quando aplicável)
+
+---
+
+## 10. Regras finais
+
+- Se um estado não estiver aqui, ele não existe.
+- Se uma transição não estiver aqui, ela é inválida.
+- Backend valida estados **antes** de executar qualquer ação.
+- Frontend nunca força mudança de estado.

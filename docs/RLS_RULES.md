@@ -1,427 +1,310 @@
 # RLS_RULES.md – Projeto SAVE
 
 ## 1. Objetivo
-Este documento define as regras de Row Level Security (RLS) por tabela para o Projeto SAVE.
+Definir as regras conceituais de Row Level Security (RLS) do Projeto SAVE.
 
-Regras gerais:
-- Deny by default.
-- Toda tabela sensível deve ter RLS habilitado.
-- Policies devem ser mínimas e específicas.
-- Se não houver policy explícita para a operação, deve falhar.
-- Conteúdo do professor não pode ter SELECT direto (somente RPC).
+Este documento descreve:
+- quem pode ver o quê
+- quem pode criar/alterar o quê
+- os predicados lógicos usados nas policies
 
----
+As policies concretas estão mapeadas em `RLS_POLICY_MAP.md`.
 
-## 2. Conceitos e predicados padrão (para usar nas policies)
-Definições conceituais (implementar como SQL helpers, views ou subqueries):
-
-### 2.1 Identidade
-- `uid()` = `auth.uid()`
-
-### 2.2 Membership
-- `is_member(org_id)`:
-  - existe linha em `organization_members` com `org_id` e `user_id = uid()` e `status = 'active'`
-
-### 2.3 Papéis administrativos (igreja)
-- `is_admin_org(org_id)`:
-  - membership com `role_admin_org = true` (ou role enum contendo admin_org)
-- `is_group_leader(org_id)`:
-  - membership com `role_group_leader = true` (ou role enum contendo group_leader)
-
-### 2.4 Discipulador e assinatura
-- `has_active_mentor_subscription(org_id)`:
-  - para org individual: subscription ativa do dono (ou do próprio usuário, conforme modelagem)
-  - para org igreja: ou assinatura da org ativa, ou licenças de discipulador válidas para o usuário
-  - regra do MVP: “discipulador só pode operar se sua capacidade de discipulador estiver ativa na org”
-
-### 2.5 Escopo de grupo (líder de grupo)
-- `leads_group(org_id, group_id)`:
-  - existe linha em `group_leaders` com `org_id`, `group_id` e `leader_user_id = uid()`
-- `is_in_group(org_id, group_id, user_id)`:
-  - existe linha em `group_memberships` com `org_id`, `group_id` e `user_id`
-
-### 2.6 Escopo de discipulado
-- `is_disciple_in_discipleship(discipleship_id)`:
-  - `discipleships.id = discipleship_id` e `discipleships.disciple_user_id = uid()`
-- `is_mentor_in_discipleship(discipleship_id)`:
-  - `discipleships.id = discipleship_id` e `discipleships.mentor_user_id = uid()`
-
-### 2.7 Admin Platform (global)
-- `is_admin_platform()`:
-  - regra de “claims” do auth (ex: `auth.jwt()->>'role' = 'admin_platform'`)
-  - ou tabela `platform_admins` com `user_id = uid()`
-
-Observação:
-- Sempre que possível, preferir checagens por membership e org_id (mais simples de auditar).
+Regra inegociável:
+- Se uma regra não estiver aqui, ela é proibida.
 
 ---
 
-## 3. Regras por tabela (CRUD)
+## 2. Princípios gerais
 
-### 3.1 organizations
-Objetivo: restringir acesso ao contexto do usuário.
-
-- SELECT:
-  - permitido se `is_member(id)` OU `is_admin_platform()`
-- INSERT:
-  - proibido via client
-  - permitido apenas via Edge Function/RPC (ex: criação automática na compra)
-- UPDATE:
-  - permitido se `is_admin_platform()`
-  - permitido se `is_admin_org(id)` para campos de branding/configurações da org igreja (se esses campos estiverem aqui; caso contrário, usar tabela separada)
-- DELETE:
-  - proibido (no MVP)
-
-### 3.2 organization_members
-- SELECT:
-  - permitido se `is_member(org_id)` (membros podem ver lista básica de membros da própria org, com campos mínimos)
-  - recomendado: limitar colunas sensíveis via view (ex: não expor email)
-- INSERT:
-  - proibido via client (usar RPC accept_invite)
-  - permitido apenas via RPC/Edge Function
-- UPDATE:
-  - permitido ao próprio usuário para campos não administrativos (ex: preferências), se existirem aqui
-  - permitido se `is_admin_org(org_id)` para:
-    - ativar/inativar membro
-    - atribuir papéis administrativos (admin_org e group_leader)
-- DELETE:
-  - proibido (no MVP)
-  - preferir soft delete (status)
-
-### 3.3 user_preferences
-- SELECT:
-  - permitido se `user_id = uid()`
-- INSERT:
-  - permitido se `user_id = uid()`
-- UPDATE:
-  - permitido se `user_id = uid()`
-- DELETE:
-  - permitido se `user_id = uid()`
+1. Multi-tenant estrito por organização (`org_id`)
+2. RLS habilitado em todas as tabelas com dados de usuário/organização
+3. `auth.uid()` é a identidade canônica do usuário logado
+4. Nenhuma policy depende de dados do frontend
+5. Conteúdo sensível do professor nunca é exposto por SELECT direto
 
 ---
 
-## 4. Igreja: grupos e memberships
+## 3. Predicados canônicos (conceituais)
 
-### 4.1 groups
-- SELECT:
-  - permitido se `is_member(org_id)`
-- INSERT:
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `is_group_leader(org_id)` apenas se o produto permitir líderes criarem grupos; padrão: somente admin
-- UPDATE:
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `is_group_leader(org_id)` somente para grupos que lidera e somente para campos permitidos (ex: nome e descrição), se desejado
-- DELETE:
-  - proibido no MVP (soft delete com status)
-  - permitido apenas se `is_admin_org(org_id)`
+Os predicados abaixo devem ser implementados como **funções SQL auxiliares**, conforme definido em `DATA_MODEL.md`.
 
-### 4.2 group_memberships
-- SELECT:
-  - permitido se `is_member(org_id)` e:
-    - (a) o usuário está no grupo (self visibility), OU
-    - (b) `is_admin_org(org_id)`, OU
-    - (c) `leads_group(org_id, group_id)`
-- INSERT (adicionar membro ao grupo):
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `leads_group(org_id, group_id)` (líder do grupo pode adicionar membros ao próprio grupo)
-- UPDATE:
-  - permitido se `is_admin_org(org_id)` ou `leads_group(org_id, group_id)`
-  - recomendado: poucas colunas atualizáveis
-- DELETE (remover membro do grupo):
-  - permitido se `is_admin_org(org_id)` ou `leads_group(org_id, group_id)`
+### 3.1 Predicados de organização
 
-### 4.3 group_leaders
-- SELECT:
-  - permitido se `is_member(org_id)`
-- INSERT (atribuir líder):
-  - permitido se `is_admin_org(org_id)`
-- DELETE (remover líder):
-  - permitido se `is_admin_org(org_id)`
-- UPDATE:
-  - idealmente não existe (usar insert/delete)
+- `is_member(org_id)`
+  - true se `auth.uid()` for membro ativo da organização
 
-### 4.4 org_group_leader_quotas
-- SELECT:
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `is_group_leader(org_id)` apenas para ver sua própria quota
-- INSERT/UPDATE/DELETE:
-  - permitido apenas se `is_admin_org(org_id)`
+- `is_admin_org(org_id)`
+  - true se `organization_members.role_admin_org = true`
 
 ---
 
-## 5. Convites
+### 3.2 Predicados de grupo (igreja)
 
-### 5.1 invites
-Observação: convite é operação sensível. Recomenda-se criar e aceitar via RPC/Edge Function. Ainda assim, RLS deve proteger.
+- `is_group_leader(org_id)`
+  - true se o usuário liderar ao menos um grupo da org
 
-- SELECT:
-  - permitido se `is_admin_platform()`
-  - permitido se `is_admin_org(org_id)` ou `is_group_leader(org_id)` com filtro:
-    - group_leader só pode ver convites criados para grupos que lidera (se invite tiver group_id)
-  - permitido ao próprio convidado somente se houver mecanismo seguro (normalmente não; o convidado usa token, não SELECT)
-- INSERT:
-  - proibido via client
-  - permitido apenas via RPC (create_invite) com checagens de quota e escopo
-- UPDATE:
-  - proibido via client
-  - permitido via RPC para revogar/reemitir/expirar
-- DELETE:
-  - proibido (manter para auditoria)
+- `leads_group(org_id, group_id)`
+  - true se o usuário for líder do grupo específico
+
+- `shares_group_with_leader(org_id, leader_user_id, member_user_id)`
+  - true se mentor e discípulo pertencem a pelo menos um grupo liderado pelo líder
+
+Observação importante:
+- O escopo de `group_leader` é **limitado a usuários que compartilham grupos que ele lidera**
+- `group_leader` **não tem acesso global à org**, a menos que também seja `admin_org`
+- O escopo de licenças do líder de grupo é determinado por `org_license_allocations.group_id` (não por inferência via group_memberships).
 
 ---
 
-## 6. Licenças e billing (org igreja e individual)
+### 3.3 Predicados de papel funcional (discipulado)
 
-### 6.1 org_subscriptions
+- `is_mentor(org_id)`
+  - true se o usuário:
+    - tem licença ativa de mentor (`org_license_allocations`)
+    - e `has_active_mentor_subscription(org_id, auth.uid()) = true`
+
+- `is_disciple(org_id)`
+  - true se o usuário participa de ao menos um discipulado ativo como discípulo
+
+---
+
+### 3.4 Assinatura ativa do discipulador
+
+Função canônica:
+- `has_active_mentor_subscription(org_id, user_id)`
+
+Resumo (ver DATA_MODEL.md para detalhe):
+- Org individual:
+  - assinatura ativa da org habilita o papel de mentor
+- Org igreja:
+  - assinatura ativa da org (se aplicável)
+  - e licença de mentor alocada ao usuário
+
+Essa função é usada por:
+- RLS (bloquear INSERT/UPDATE)
+- RPCs (validações explícitas)
+
+---
+
+## 4. Regras por domínio
+
+## 4.1 Organizações e membros
+
+### organizations
 - SELECT:
-  - permitido se `is_admin_platform()`
-  - permitido se `is_admin_org(org_id)` para ver status da org igreja
-  - permitido em org individual para o dono/discipulador (definir regra pelo modelo)
+  - permitido apenas para membros da org
 - INSERT/UPDATE:
-  - proibido via client
-  - permitido apenas via Edge Function (webhook) ou RPC administrativa
-- DELETE:
-  - proibido
+  - apenas admin_platform (fora do escopo RLS comum)
 
-### 6.2 org_license_pool
+---
+
+### organization_members
 - SELECT:
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `is_group_leader(org_id)` apenas leitura parcial (opcional), ou não permitir
+  - membro pode ver seu próprio vínculo
+  - admin_org pode ver todos da org
+- INSERT:
+  - apenas via RPC (convite)
+- UPDATE:
+  - admin_org pode alterar papéis
+- DELETE:
+  - proibido (usar status = inactive)
+
+---
+
+## 4.2 Grupos (igreja)
+
+### groups
+- SELECT:
+  - membros da org
 - INSERT/UPDATE:
-  - proibido via client
-  - permitido apenas via webhook (Edge Function) e RPC administrativa
+  - admin_org
 - DELETE:
   - proibido
 
-### 6.3 org_license_allocations
-- SELECT:
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `is_group_leader(org_id)` apenas para alocações dentro dos seus grupos (se houver escopo), ou somente próprias
-  - permitido ao usuário ver sua própria alocação (se `user_id = uid()`)
-- INSERT/UPDATE/DELETE:
-  - proibido via client
-  - permitido via RPC (allocate_license, revoke_license) com checagens de pool e quota
+---
 
-### 6.4 discounts
+### group_memberships
 - SELECT:
-  - permitido se `is_admin_platform()`
-  - permitido se `user_id = uid()` para descontos do próprio usuário
-  - permitido se `is_admin_org(org_id)` se houver desconto por org (opcional)
-- INSERT/UPDATE/DELETE:
-  - proibido via client
-  - permitido via admin_platform ou automação (conclusão do discipulado)
+  - membros do grupo
+  - líderes do grupo
+  - admin_org
+- INSERT/DELETE:
+  - admin_org
+  - líder do grupo (somente para seus grupos)
 
 ---
 
-## 7. Conteúdo global (publicação e leitura)
-
-### 7.1 studies, modules, lessons, lesson_blocks, questions
-Objetivo: leitura ampla, escrita apenas admin_platform.
-
+### group_leaders
 - SELECT:
-  - permitido para usuários autenticados (ou público, se desejado)
-  - conteúdo “bloqueado” não deve ser filtrado por RLS aqui, e sim por releases do discipulado (a liberação real depende do fluxo)
-- INSERT/UPDATE/DELETE:
-  - permitido apenas se `is_admin_platform()`
-
-Observação:
-- Mesmo que o conteúdo seja global, a liberação para discípulo não deve ocorrer por esconder registros de lessons, e sim por permitir acesso ao “conteúdo liberado” por meio de releases (seção 8).
+  - membros do grupo
+  - admin_org
+- INSERT/DELETE:
+  - admin_org
 
 ---
 
-## 8. Conteúdo do professor (altamente sensível)
+## 4.3 Convites
 
-### 8.1 lesson_teacher_notes
+### invites
 - SELECT:
-  - proibido para usuários comuns (sem policy)
-  - permitido somente se `is_admin_platform()`
-- INSERT/UPDATE/DELETE:
-  - permitido somente se `is_admin_platform()`
-
-Acesso no app:
-- exclusivamente via RPC `get_teacher_lesson(...)` (security definer) que valida:
-  - is_member(org_id)
-  - papel permitido (discipulador, group_leader, admin_org)
-  - assinatura ativa quando aplicável
-
-### 8.2 question_answer_keys
-Mesmas regras de `lesson_teacher_notes`.
-
----
-
-## 9. Fluxo de discipulado e releases
-
-### 9.1 discipleships
-Dados sensíveis por org e por vínculo (mentor e disciple).
-
-- SELECT:
-  - permitido se `is_member(org_id)` e:
-    - (a) `mentor_user_id = uid()` ou `disciple_user_id = uid()`
-    - (b) `is_admin_org(org_id)`
-    - (c) `is_group_leader(org_id)` e discipulado pertence a alguém de grupo que ele lidera (requer regra de escopo, ver abaixo)
-- INSERT (criar discipulado):
-  - permitido se `is_member(org_id)` e `has_active_mentor_subscription(org_id)`
-  - somente se `mentor_user_id = uid()`
-  - exige licenças disponíveis (recomendado via RPC create_discipleship)
-- UPDATE:
-  - permitido ao mentor do vínculo para:
-    - status do discipulado (active, completed, archived)
-    - metadados do acompanhamento
-  - permitido a admin_org em casos administrativos (opcional)
-- DELETE:
-  - proibido (soft delete ou status)
-
-Escopo de líder de grupo:
-- group_leader só vê discipulados onde mentor ou discípulo pertence a algum grupo que ele lidera.
-- Isso deve ser implementado com join em `group_memberships` de mentor e/ou discípulo, ou com tabela auxiliar de escopo.
-
-### 9.2 lesson_releases
-Representa liberação de lição para um discipulado.
-
-- SELECT:
-  - permitido se `is_disciple_in_discipleship(discipleship_id)` ou `is_mentor_in_discipleship(discipleship_id)`
-  - permitido se admin_org na mesma org
-  - permitido se group_leader dentro do escopo
-- INSERT (liberar lição):
-  - permitido somente ao mentor do vínculo (`is_mentor_in_discipleship`)
-  - exige assinatura ativa e discipulado active
-- UPDATE:
-  - geralmente não necessário (criar novo release ou ter status)
-- DELETE:
-  - proibido (manter histórico)
-
-### 9.3 question_releases
-Representa liberação de questões para um discipulado e lição.
-
-- SELECT:
-  - mesmas regras de lesson_releases
+  - criador do convite
+  - admin_org
 - INSERT:
-  - permitido somente ao mentor do vínculo
-  - exige que a lição já esteja liberada
-- UPDATE/DELETE:
-  - proibido no MVP
-
----
-
-## 10. Respostas e revisões
-
-### 10.1 answers
-- SELECT:
-  - permitido se:
-    - discípulo do vínculo (ver suas próprias respostas)
-    - mentor do vínculo (ver respostas do discípulo)
-    - admin_org na org
-    - group_leader no escopo
-- INSERT:
-  - permitido somente ao discípulo do vínculo
-  - exige que as questões estejam liberadas
-  - para rascunho: status draft
-  - para envio: status submitted
+  - admin_org
+  - group_leader (somente para seus grupos)
 - UPDATE:
-  - permitido somente ao discípulo enquanto status = draft ou needs_changes
-  - permitido ao mentor para mudar status para in_review/approved/etc somente via review (preferir tabela reviews)
+  - revogar convite:
+    - criador
+    - admin_org
 - DELETE:
-  - proibido no MVP
-
-### 10.2 reviews
-- SELECT:
-  - permitido ao mentor do vínculo
-  - permitido ao discípulo do vínculo (para ver feedback)
-  - permitido ao admin_org
-  - permitido ao group_leader no escopo
-- INSERT:
-  - permitido ao mentor do vínculo
-  - permitido ao admin_org
-  - permitido ao group_leader somente no escopo
-- UPDATE/DELETE:
-  - proibido (histórico imutável)
+  - proibido
 
 ---
 
-## 11. Gamificação
+## 4.4 Licenças
 
-### 11.1 achievements (definições globais)
+### org_license_pool
 - SELECT:
-  - permitido a todos (ou autenticados)
-- INSERT/UPDATE/DELETE:
-  - permitido somente se `is_admin_platform()`
+  - admin_org
+  - group_leader (somente leitura)
+- UPDATE:
+  - admin_org
+- INSERT:
+  - via webhook apenas
 
-### 11.2 user_achievements
+---
+
+### org_license_allocations
 - SELECT:
-  - permitido se `user_id = uid()`
-  - permitido se admin_org na mesma org, se houver vínculo org (opcional)
+  - admin_org (toda a org)
+  - o próprio usuário (suas allocations)
+  - group_leader (somente allocations escopadas a grupos que ele lidera)
+
 - INSERT/UPDATE:
-  - proibido via client
-  - permitido via job/RPC interna (server-side)
+  - admin_org (qualquer allocation)
+  - group_leader (somente se `group_id` for um grupo que ele lidera)
+
 - DELETE:
-  - proibido
+  - proibido (usar status = revoked)
+
+Regra de escopo (canonical):
+- `org_license_allocations.group_id IS NULL` = licença global da organização
+  - somente admin_org gerencia/visualiza globalmente
+- `org_license_allocations.group_id IS NOT NULL` = licença escopada ao grupo
+  - group_leader só pode gerenciar/visualizar se `leads_group(org_id, group_id) = true`
 
 ---
 
-## 12. Auditoria e logs
+## 4.5 Currículo (conteúdo base)
 
-### 12.1 audit_events
+### studies / modules / lessons / lesson_blocks / questions
 - SELECT:
-  - permitido se `is_admin_platform()`
-  - permitido se `is_admin_org(org_id)`
-  - permitido se `is_group_leader(org_id)` com filtro de escopo (apenas eventos de seus grupos)
-  - opcional: permitir ao próprio usuário ver eventos onde é o actor (somente os próprios)
-- INSERT:
-  - permitido via RPC/Edge Functions (não via client direto)
-- UPDATE/DELETE:
-  - proibido
+  - todos os membros da org
+  - apenas status = published
+- INSERT/UPDATE/DELETE:
+  - admin_platform apenas
 
-### 12.2 webhook_logs
-- SELECT:
-  - permitido somente se `is_admin_platform()`
-  - opcional: admin_org pode ver eventos resumidos (sem payload completo)
-- INSERT:
-  - permitido somente via Edge Functions (webhook)
-- UPDATE/DELETE:
-  - proibido
+---
 
-### 12.3 notifications_outbox
+### teacher_notes / answer_keys
 - SELECT:
-  - permitido somente para serviços internos (ou admin_platform)
-  - opcional: permitir usuário ler suas notificações via view segura
+  - proibido (RLS sempre false)
+- Acesso:
+  - somente via RPC/Edge Function validando papel de mentor
+
+---
+
+## 4.6 Discipulados
+
+### discipleships
+- SELECT:
+  - mentor do discipulado
+  - disciple do discipulado
+  - admin_org
+  - group_leader:
+    - apenas se mentor e discípulo compartilham grupo que ele lidera
 - INSERT:
-  - via RPC/Edge Functions
+  - mentor (com assinatura ativa)
 - UPDATE:
-  - via worker interno (marcar enviado)
+  - mentor do discipulado
+  - admin_org
 - DELETE:
-  - proibido (manter histórico no MVP)
+  - proibido
 
 ---
 
-## 13. Regras especiais e “anti-patterns” proibidos
-- Proibido:
-  - policies com `USING (true)`
-  - liberar SELECT amplo em tabelas com org_id
-  - acessar teacher tables diretamente
-  - fazer INSERT/UPDATE em licenças via client
-  - confiar em “hidden UI” como segurança
+### lesson_releases
+- SELECT:
+  - mentor do discipulado
+  - disciple do discipulado
+- INSERT:
+  - mentor do discipulado
+- DELETE:
+  - proibido
 
 ---
 
-## 14. Casos de teste de permissão (obrigatórios)
-Casos que devem falhar:
-1) Discípulo tenta SELECT em `question_answer_keys` e `lesson_teacher_notes`
-2) Usuário de org A tenta ler `discipleships` da org B
-3) Líder de grupo tenta ver ou alocar licença para usuário fora de seus grupos
-4) Discípulo tenta inserir answer sem `question_release` liberado
-5) Reutilizar token de invite aceito
-
-Casos que devem funcionar:
-1) Mentor lê conteúdo do professor via RPC
-2) Mentor libera lição e questões para discipulado active
-3) Discípulo envia resposta após liberação
-4) Mentor cria review e discípulo lê feedback
-5) Admin_org aloca licenças e ajusta quotas
+### question_releases (por lição)
+- SELECT:
+  - mentor do discipulado
+  - disciple do discipulado
+- INSERT:
+  - mentor do discipulado
+- DELETE:
+  - proibido
 
 ---
 
-## 15. Notas de implementação (para agents)
-- Implementar predicados (is_member, is_admin_org, leads_group etc.) como SQL helpers reutilizáveis (funções STABLE) ou subqueries padronizadas.
-- Preferir RPC para operações que alteram múltiplas tabelas em transação (convites, licenças, create/complete discipleship).
-- Views para relatórios devem respeitar RLS ou ser “security invoker”.
-- Se houver dúvida entre permitir e negar, negar.
+## 4.7 Respostas e revisão
+
+### answers
+- SELECT:
+  - disciple (suas próprias)
+  - mentor do discipulado
+  - admin_org
+- INSERT:
+  - disciple (se perguntas liberadas)
+- UPDATE:
+  - disciple (status draft / needs_changes)
+  - mentor (status in_review / approved)
+- DELETE:
+  - proibido
+
+---
+
+### reviews
+- SELECT:
+  - mentor do discipulado
+  - admin_org
+- INSERT:
+  - mentor do discipulado
+- UPDATE/DELETE:
+  - proibido
+
+---
+
+## 4.8 Auditoria e webhooks
+
+### audit_events
+- SELECT:
+  - admin_org (somente sua org)
+  - admin_platform (global)
+- INSERT:
+  - sistema/RPC apenas
+
+---
+
+### webhook_logs
+- SELECT:
+  - admin_platform
+- INSERT/UPDATE:
+  - Edge Functions apenas
+
+---
+
+## 5. Regras finais
+- RLS é sempre deny-by-default.
+- Policies devem chamar predicados claros (não lógica inline complexa).
+- Se houver dúvida de escopo, negar acesso.
+- `RLS_POLICY_MAP.md` é a tradução técnica obrigatória deste documento.
