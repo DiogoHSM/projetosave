@@ -418,6 +418,35 @@ Operações sensíveis devem checar:
 - Storage: Supabase Storage para imagens/arquivos
 - Pagamentos: Stripe ou provedor nacional (definir depois)
 
+### 16.1 Estrutura de pastas Next.js App Router
+
+O projeto usa Next.js App Router. **Importante:** Route groups com parênteses `()` são usados apenas para organização e **NÃO adicionam segmentos à URL**.
+
+Estrutura correta:
+```
+app/
+├── (auth)/                    ← Route group para rotas públicas de auth
+│   ├── login/page.tsx         → /login
+│   ├── register/page.tsx      → /register
+│   └── invite/[token]/page.tsx → /invite/:token
+│
+├── (authenticated)/           ← Route group para rotas autenticadas
+│   ├── layout.tsx             ← Layout compartilhado (com OrganizationProvider)
+│   └── app/                   ← Pasta REAL que cria o prefixo /app na URL
+│       ├── page.tsx           → /app
+│       ├── profile/page.tsx   → /app/profile
+│       ├── disciple/          → /app/disciple/*
+│       ├── mentor/            → /app/mentor/*
+│       ├── church/            → /app/church/*
+│       └── admin/             → /app/admin/*
+│
+├── auth/callback/route.ts     → /auth/callback (OAuth callback)
+├── layout.tsx                 ← Layout raiz
+└── page.tsx                   → / (landing page)
+```
+
+**Regra crítica:** Para que as rotas autenticadas tenham o prefixo `/app`, é necessário criar uma pasta `app/` **dentro** do route group `(authenticated)`. O route group apenas organiza os arquivos e aplica o layout, mas não adiciona segmentos à URL.
+
 ---
 
 ## 17. Modelo de dados (alto nível)

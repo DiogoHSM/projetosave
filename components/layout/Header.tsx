@@ -4,6 +4,7 @@ import React from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { OrganizationSelector } from '@/components/ui/OrganizationSelector'
 
 export function Header() {
   const router = useRouter()
@@ -26,10 +27,7 @@ export function Header() {
           priority
         />
         <div className="h-6 w-px bg-gray-300" />
-        <div className="text-sm text-gray-600">
-          {/* Contexto ativo será adicionado aqui */}
-          <span className="font-medium">Organização</span>
-        </div>
+        <OrganizationSelector />
       </div>
 
       <div className="flex items-center gap-4">

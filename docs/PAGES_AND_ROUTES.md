@@ -28,6 +28,30 @@ Se uma página não estiver aqui, **ela não deve ser criada** sem atualização
   - no backend (RLS/RPC)
   - no frontend (guardas de rota)
 
+### 2.3 Estrutura de pastas Next.js
+
+O projeto usa Next.js App Router com route groups. **Atenção:** route groups `(nome)` são apenas para organização e NÃO adicionam segmentos à URL.
+
+Estrutura de pastas:
+```
+app/
+├── (auth)/                    ← Rotas públicas de autenticação
+│   ├── login/page.tsx         → /login
+│   └── register/page.tsx      → /register
+│
+├── (authenticated)/           ← Rotas que requerem autenticação
+│   ├── layout.tsx             ← Layout com OrganizationProvider
+│   └── app/                   ← Prefixo /app na URL
+│       ├── page.tsx           → /app
+│       ├── profile/           → /app/profile
+│       ├── disciple/          → /app/disciple/*
+│       ├── mentor/            → /app/mentor/*
+│       ├── church/            → /app/church/*
+│       └── admin/             → /app/admin/*
+```
+
+**Importante:** Para rotas `/app/*`, a pasta `app/` dentro de `(authenticated)` é obrigatória.
+
 ---
 
 ## 3. Rotas públicas (não autenticadas)

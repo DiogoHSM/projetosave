@@ -68,12 +68,15 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Redirecionar usuários autenticados de /login e /register para /app
-  if ((request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register') && user) {
+  // Redirecionar usuários autenticados de /login para /app
+  if (request.nextUrl.pathname === '/login' && user) {
     const url = request.nextUrl.clone()
     url.pathname = '/app'
     return NextResponse.redirect(url)
   }
+
+  // Permitir acesso a /register mesmo se autenticado (para criar nova conta)
+  // O próprio formulário vai lidar com isso
 
   return response
 }
@@ -90,4 +93,3 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
-

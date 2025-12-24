@@ -43,6 +43,12 @@ export function TextInput({
   )
 }
 
+interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
+  label?: string
+  error?: string
+  rows?: number
+}
+
 export function TextArea({ 
   label, 
   error, 
@@ -50,7 +56,7 @@ export function TextArea({
   id,
   rows = 4,
   ...props 
-}: InputProps & { rows?: number }) {
+}: TextAreaProps) {
   const inputId = id || `textarea-${label?.toLowerCase().replace(/\s+/g, '-')}`
 
   return (

@@ -35,13 +35,30 @@ export default function RegisterPage() {
         },
       })
 
+      // Se houver erro e não for relacionado a email, mostrar erro
       if (signUpError) {
-        setError(signUpError.message)
-        setIsLoading(false)
-        return
+        // Ignorar erros de envio de email se o usuário foi criado
+        if (signUpError.message.includes('email') && data?.user) {
+          // Usuário criado, mas email não enviado - continuar
+        } else {
+          // Traduzir mensagens de erro comuns
+          let errorMessage = signUpError.message
+          if (signUpError.message.includes('already registered') || signUpError.message.includes('already exists') || signUpError.message.includes('User already registered')) {
+            errorMessage = 'Este email já está cadastrado. Faça login ou use outro email.'
+          } else if (signUpError.message.includes('Password')) {
+            errorMessage = 'A senha deve ter pelo menos 6 caracteres.'
+          } else if (signUpError.message.includes('Invalid email')) {
+            errorMessage = 'Email inválido. Verifique o endereço de email.'
+          } else {
+            errorMessage = 'Erro ao criar conta. Tente novamente.'
+          }
+          setError(errorMessage)
+          setIsLoading(false)
+          return
+        }
       }
 
-      if (data.user) {
+      if (data?.user) {
         // Criar perfil
         const { error: profileError } = await supabase
           .from('user_profiles')
@@ -56,8 +73,28 @@ export default function RegisterPage() {
           // O perfil pode ser criado depois
         }
 
+        // Criar organização individual automaticamente
+        const { data: orgData, error: orgError } = await supabase.rpc('create_individual_org', {
+          p_user_id: data.user.id,
+          p_org_name: fullName ? `${fullName}'s Organization` : null,
+        })
+
+        if (orgError) {
+          console.error('Error creating organization:', orgError)
+          // Não falhar o cadastro, mas logar o erro
+          // A organização pode ser criada depois
+        }
+
         // Redirecionar para página de confirmação ou login
-        router.push('/login?registered=true')
+        // Se email não foi confirmado, mostrar mensagem
+        if (data.user.email_confirmed_at) {
+          router.push('/app')
+        } else {
+          router.push('/login?registered=true&check_email=true')
+        }
+      } else {
+        setError('Erro ao criar conta. Tente novamente.')
+        setIsLoading(false)
       }
     } catch (err) {
       setError('Erro ao criar conta. Tente novamente.')

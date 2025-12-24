@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { ButtonPrimary } from '@/components/ui/Button'
@@ -8,7 +8,7 @@ import { TextInput } from '@/components/ui/Input'
 import { Card, CardBody, CardHeader } from '@/components/ui/Card'
 import Image from 'next/image'
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
@@ -17,6 +17,18 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  // Verificar se há mensagem de sucesso na URL
+  React.useEffect(() => {
+    if (searchParams.get('registered') === 'true') {
+      if (searchParams.get('check_email') === 'true') {
+        setSuccessMessage('Conta criada! Verifique seu email para confirmar (ou faça login se já confirmou).')
+      } else {
+        setSuccessMessage('Conta criada com sucesso! Faça login para continuar.')
+      }
+    }
+  }, [searchParams])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,7 +42,18 @@ export default function LoginPage() {
       })
 
       if (signInError) {
-        setError(signInError.message)
+        // Traduzir mensagens de erro comuns
+        let errorMessage = signInError.message
+        if (signInError.message.includes('Invalid login credentials') || signInError.message.includes('Invalid credentials')) {
+          errorMessage = 'Email ou senha incorretos. Verifique suas credenciais.'
+        } else if (signInError.message.includes('Email not confirmed')) {
+          errorMessage = 'Email não confirmado. Verifique sua caixa de entrada.'
+        } else if (signInError.message.includes('User not found')) {
+          errorMessage = 'Usuário não encontrado. Verifique o email ou cadastre-se.'
+        } else {
+          errorMessage = 'Erro ao fazer login. Tente novamente.'
+        }
+        setError(errorMessage)
         setIsLoading(false)
         return
       }
@@ -63,6 +86,11 @@ export default function LoginPage() {
         </CardHeader>
         <CardBody>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {successMessage && (
+              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+                {successMessage}
+              </div>
+            )}
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
                 {error}
@@ -107,6 +135,18 @@ export default function LoginPage() {
         </CardBody>
       </Card>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-500">Carregando...</div>
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   )
 }
 
